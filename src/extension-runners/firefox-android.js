@@ -327,46 +327,32 @@ export class FirefoxAndroidExtensionRunner {
         firefoxApk,
       },
     } = this;
-    // Discovery and select a Firefox for Android version.
-    const packages = await adbUtils.discoverInstalledFirefoxAPKs(
+
+    const filter = firefoxApk || 'org.mozilla';
+
+    const packages = await adbUtils.discoverInstalledAPKs(
       selectedAdbDevice,
-      firefoxApk
+      filter
     );
 
-    if (packages.length === 0) {
-      throw new UsageError(
-        'No Firefox packages were found on the selected Android device');
-    }
-
-    const pkgsListMsg = (pkgs) => {
-      return pkgs.map((pkg) => ` - ${ pkg}`).join('\n');
-    };
-
-    if (!firefoxApk) {
-      log.info(`\nPackages found:\n${pkgsListMsg(packages)}`);
-
-      if (packages.length > 1) {
-        throw new UsageError('Select one of the packages using --firefox-apk');
-      }
-
-      // If only one APK has been found, select it even if it has not been
-      // specified explicitly on the comment line.
+    if (1 === packages.length) {
       this.selectedFirefoxApk = packages[0];
-      log.info(`Selected Firefox for Android APK: ${this.selectedFirefoxApk}`);
-      return;
+    } else if (firefoxApk && packages.includes(firefoxApk)) {
+      this.selectedFirefoxApk = firefoxApk;
     }
 
-    const filteredPackages = packages.filter((line) => line === firefoxApk);
-
-    if (filteredPackages.length === 0) {
-      const pkgsList = pkgsListMsg(filteredPackages);
-      throw new UsageError(
-        `Package ${firefoxApk} was not found in list: ${pkgsList}`
-      );
+    if (this.selectedFirefoxApk) {
+      log.debug(`Selected ${this.selectedFirefoxApk}`);
+      return this.selectedFirefoxApk;
     }
 
-    this.selectedFirefoxApk = filteredPackages[0];
-    log.debug(`Selected Firefox for Android APK: ${this.selectedFirefoxApk}`);
+    if (0 === packages.length) {
+      throw new UsageError(`No package matching ${filter} found on device.`);
+    }
+
+    const choices = packages.map((apk) => ` - ${apk}`).join('\n');
+    throw new UsageError(
+      `Select one of the following with --firefox-apk\n${choices}`);
   }
 
   async adbForceStopSelectedPackage() {

@@ -211,13 +211,13 @@ describe('utils/adb', () => {
     });
   });
 
-  describe('discoverInstalledFirefoxAPKs', () => {
+  describe('discoverInstalledAPKs', () => {
     it('rejects an UsageError on adb binary not found', async () => {
       const adb = await testSpawnADBUsageError({
         adbClient: {
           shell: createSpawnADBErrorSpy(),
         },
-        testFn: (adbUtils) => adbUtils.discoverInstalledFirefoxAPKs('device1'),
+        testFn: (adbUtils) => adbUtils.discoverInstalledAPKs('device1'),
       });
 
       sinon.assert.calledOnce(adb.fakeADBClient.shell);
@@ -239,7 +239,7 @@ describe('utils/adb', () => {
       });
       const adbUtils = new ADBUtils({adb});
 
-      const promise = adbUtils.discoverInstalledFirefoxAPKs('device1');
+      const promise = adbUtils.discoverInstalledAPKs('device1');
       const packages = await assert.isFulfilled(promise);
       sinon.assert.calledOnce(adb.fakeADBClient.shell);
       sinon.assert.calledOnce(adb.util.readAll);
@@ -259,7 +259,7 @@ describe('utils/adb', () => {
       });
       const adbUtils = new ADBUtils({adb});
 
-      const promise = adbUtils.discoverInstalledFirefoxAPKs(
+      const promise = adbUtils.discoverInstalledAPKs(
         'device1',
         'com.some.firefox.fork'
       );

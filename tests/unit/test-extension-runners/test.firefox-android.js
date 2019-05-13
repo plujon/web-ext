@@ -111,7 +111,7 @@ function prepareSelectedDeviceAndAPKParams(
     discoverDevices: sinon.spy(() => Promise.resolve([
       'emulator-1', 'emulator-2',
     ])),
-    discoverInstalledFirefoxAPKs: sinon.spy(() => Promise.resolve([
+    discoverInstalledAPKs: sinon.spy(() => Promise.resolve([
       'org.mozilla.fennec', 'org.mozilla.firefox',
     ])),
     getAndroidVersionNumber: sinon.spy(() => Promise.resolve(20)),
@@ -225,7 +225,7 @@ describe('util/extension-runners/firefox-android', () => {
         discoverDevices: sinon.spy(() => Promise.resolve([
           'emulator-1', 'emulator-2',
         ])),
-        discoverInstalledFirefoxAPKs: sinon.spy(() => Promise.resolve([])),
+        discoverInstalledAPKs: sinon.spy(() => Promise.resolve([])),
       };
 
       await testUsageError({
@@ -235,7 +235,7 @@ describe('util/extension-runners/firefox-android', () => {
         fakeADBUtils,
       }, ({actualException}) => {
         sinon.assert.calledOnce(fakeADBUtils.discoverDevices);
-        sinon.assert.calledOnce(fakeADBUtils.discoverInstalledFirefoxAPKs);
+        sinon.assert.calledOnce(fakeADBUtils.discoverInstalledAPKs);
 
         assert.instanceOf(actualException, UsageError);
         assert.match(
@@ -250,7 +250,7 @@ describe('util/extension-runners/firefox-android', () => {
         discoverDevices: sinon.spy(() => Promise.resolve([
           'emulator-1', 'emulator-2',
         ])),
-        discoverInstalledFirefoxAPKs: sinon.spy(() => Promise.resolve([
+        discoverInstalledAPKs: sinon.spy(() => Promise.resolve([
           'org.mozilla.fennec', 'org.mozilla.firefox',
         ])),
       };
@@ -262,7 +262,7 @@ describe('util/extension-runners/firefox-android', () => {
         fakeADBUtils,
       }, ({actualException}) => {
         sinon.assert.calledOnce(fakeADBUtils.discoverDevices);
-        sinon.assert.calledOnce(fakeADBUtils.discoverInstalledFirefoxAPKs);
+        sinon.assert.calledOnce(fakeADBUtils.discoverInstalledAPKs);
 
         assert.instanceOf(actualException, UsageError);
         assert.match(
@@ -278,7 +278,7 @@ describe('util/extension-runners/firefox-android', () => {
            discoverDevices: sinon.spy(() => Promise.resolve([
              'emulator-1', 'emulator-2',
            ])),
-           discoverInstalledFirefoxAPKs: sinon.spy(() => Promise.resolve([
+           discoverInstalledAPKs: sinon.spy(() => Promise.resolve([
              'org.mozilla.fennec', 'org.mozilla.firefox',
            ])),
          };
@@ -291,7 +291,7 @@ describe('util/extension-runners/firefox-android', () => {
            fakeADBUtils,
          }, ({actualException}) => {
            sinon.assert.calledOnce(fakeADBUtils.discoverDevices);
-           sinon.assert.calledOnce(fakeADBUtils.discoverInstalledFirefoxAPKs);
+           sinon.assert.calledOnce(fakeADBUtils.discoverInstalledAPKs);
 
            assert.instanceOf(actualException, UsageError);
            assert.match(
@@ -308,7 +308,7 @@ describe('util/extension-runners/firefox-android', () => {
     it('does select a Firefox apk if only one has been found', async () => {
       const {params, fakeADBUtils} = prepareSelectedDeviceAndAPKParams();
 
-      fakeADBUtils.discoverInstalledFirefoxAPKs = sinon.spy(
+      fakeADBUtils.discoverInstalledAPKs = sinon.spy(
         () => Promise.resolve(['org.mozilla.firefox'])
       );
 

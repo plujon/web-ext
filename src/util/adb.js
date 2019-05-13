@@ -98,29 +98,24 @@ export default class ADBUtils {
     return devices.map((dev) => dev.id);
   }
 
-  async discoverInstalledFirefoxAPKs(
+  async discoverInstalledAPKs(
     deviceId: string,
-    firefoxApk?: string
+    filter?: string
   ): Promise<Array<string>> {
-    log.debug(`Listing installed Firefox APKs on ${deviceId}`);
+    log.debug(`Listing installed APKs on ${deviceId}`);
 
-    const pmList = await this.runShellCommand(deviceId, [
-      'pm', 'list', 'packages',
-    ]);
+    const args = [ 'pm', 'list', 'packages' ];
 
-    return pmList.split('\n')
-      .map((line) => line.replace('package:', '').trim())
-      .filter((line) => {
-        // Look for an exact match if firefoxApk is defined.
-        if (firefoxApk) {
-          return line === firefoxApk;
-        }
-        // Match any package name that starts with the package name of a Firefox for Android browser.
-        return (
-          line.startsWith('org.mozilla.fennec') ||
-            line.startsWith('org.mozilla.firefox')
-        );
-      });
+    if (filter) {
+      args.push(filter);
+    }
+
+    const pmList = await this.runShellCommand(deviceId, args);
+
+    // Sort the results alphabetically for aethetics.
+    return pmList.trim().split('\n')
+      .map((line) => line.replace('package:', ''))
+      .sort();
   }
 
   async getAndroidVersionNumber(deviceId: string): Promise<number> {
