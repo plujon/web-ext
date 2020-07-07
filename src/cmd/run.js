@@ -34,6 +34,7 @@ export type CmdRunParams = {|
   noReload: boolean,
   preInstall: boolean,
   sourceDir: string,
+  watchFile?: string,
   startUrl?: Array<string>,
   target?: Array<string>,
   args?: Array<string>,
@@ -43,7 +44,13 @@ export type CmdRunParams = {|
   adbHost?: string,
   adbPort?: string,
   adbDevice?: string,
+  adbDiscoveryTimeout?: number,
   firefoxApk?: string,
+  firefoxApkComponent?: string,
+
+  // Chromium Desktop CLI options.
+  chromiumBinary?: string,
+  chromiumProfile?: string,
 |};
 
 export type CmdRunOptions = {|
@@ -70,15 +77,21 @@ export default async function run(
     noReload = false,
     preInstall = false,
     sourceDir,
+    watchFile,
     startUrl,
     target,
+    args,
     // Android CLI options.
     adbBin,
     adbHost,
     adbPort,
     adbDevice,
+    adbDiscoveryTimeout,
     firefoxApk,
-    args,
+    firefoxApkComponent,
+    // Chromium CLI options.
+    chromiumBinary,
+    chromiumProfile,
   }: CmdRunParams,
   {
     buildExtension = defaultBuildExtension,
@@ -146,10 +159,12 @@ export default async function run(
       browserConsole,
       preInstall,
       firefoxApk,
+      firefoxApkComponent,
       adbDevice,
       adbHost,
       adbPort,
       adbBin,
+      adbDiscoveryTimeout,
 
       // Injected dependencies.
       firefoxApp,
@@ -177,6 +192,20 @@ export default async function run(
     runners.push(firefoxAndroidRunner);
   }
 
+  if (target && target.includes('chromium')) {
+    const chromiumRunnerParams = {
+      ...commonRunnerParams,
+      chromiumBinary,
+      chromiumProfile,
+    };
+
+    const chromiumRunner = await createExtensionRunner({
+      target: 'chromium',
+      params: chromiumRunnerParams,
+    });
+    runners.push(chromiumRunner);
+  }
+
   const extensionRunner = new MultiExtensionRunner({
     desktopNotifications,
     runners,
@@ -192,6 +221,7 @@ export default async function run(
     reloadStrategy({
       extensionRunner,
       sourceDir,
+      watchFile,
       artifactsDir,
       ignoreFiles,
       noInput,

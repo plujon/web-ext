@@ -4,8 +4,10 @@ import path from 'path';
 import {readFileSync} from 'fs';
 
 import camelCase from 'camelcase';
+import decamelize from 'decamelize';
 import git from 'git-rev-sync';
 import yargs from 'yargs';
+import { Parser as yargsParser } from 'yargs/yargs';
 
 import defaultCommands from './cmd';
 import {UsageError} from './errors';
@@ -53,6 +55,7 @@ export class Program {
   shouldExitProgram: boolean;
   verboseEnabled: boolean;
   options: Object;
+  programArgv: Array<string>;
 
   constructor(
     argv: ?Array<string>,
@@ -65,6 +68,7 @@ export class Program {
     // NOTE: process.argv.slice(2) removes the path to node and web-ext
     // executables from the process.argv array.
     argv = argv || process.argv.slice(2);
+    this.programArgv = argv;
 
     // NOTE: always initialize yargs explicitly with the package dir
     // to avoid side-effects due to yargs looking for its configuration
@@ -78,13 +82,11 @@ export class Program {
     this.absolutePackageDir = absolutePackageDir;
     this.verboseEnabled = false;
     this.shouldExitProgram = true;
+
     this.yargs = yargsInstance;
-
-    // The following yargs configuration option is needed to fix #304.
     this.yargs.parserConfiguration({
-      'boolean-negation': false,
+      'boolean-negation': true,
     });
-
     this.yargs.strict();
 
     this.commands = {};
@@ -148,6 +150,81 @@ export class Program {
     this.verboseEnabled = true;
   }
 
+  // Retrieve the yargs argv object and apply any further fix needed
+  // on the output of the yargs options parsing.
+  getArguments(): Object {
+    // To support looking up required parameters via config files, we need to
+    // temporarily disable the requiredArguments validation. Otherwise yargs
+    // would exit early. Validation is enforced by the checkRequiredArguments()
+    // method, after reading configuration files.
+    //
+    // This is an undocumented internal API of yargs! Unit tests to avoid
+    // regressions are located at: tests/functional/test.cli.sign.js
+    //
+    // Replace hack if possible:  https://github.com/mozilla/web-ext/issues/1930
+    const validationInstance = this.yargs.getValidationInstance();
+    const { requiredArguments } = validationInstance;
+    validationInstance.requiredArguments = () => {};
+    const argv = this.yargs.argv;
+    validationInstance.requiredArguments = requiredArguments;
+
+    // Yargs boolean options doesn't define the no* counterpart
+    // with negate-boolean on Yargs 15. Define as expected by the
+    // web-ext execute method.
+    if (argv.configDiscovery != null) {
+      argv.noConfigDiscovery = !argv.configDiscovery;
+    }
+    if (argv.reload != null) {
+      argv.noReload = !argv.reload;
+    }
+
+    // Replacement for the "requiresArg: true" parameter until the following bug
+    // is fixed: https://github.com/yargs/yargs/issues/1098
+    if (argv.ignoreFiles && !argv.ignoreFiles.length) {
+      throw new UsageError('Not enough arguments following: ignore-files');
+    }
+
+    if (argv.startUrl && !argv.startUrl.length) {
+      throw new UsageError('Not enough arguments following: start-url');
+    }
+
+    return argv;
+  }
+
+  // getArguments() disables validation of required parameters, to allow us to
+  // read parameters from config files first. Before the program continues, it
+  // must call checkRequiredArguments() to ensure that required parameters are
+  // defined (in the CLI or in a config file).
+  checkRequiredArguments(adjustedArgv: Object): void {
+    const validationInstance = this.yargs.getValidationInstance();
+    validationInstance.requiredArguments(adjustedArgv);
+  }
+
+  // Remove WEB_EXT_* environment vars that are not a global cli options
+  // or an option supported by the current command (See #793).
+  cleanupProcessEnvConfigs(systemProcess: typeof process) {
+    const cmd = yargsParser(this.programArgv)._[0];
+    const env = systemProcess.env || {};
+    const toOptionKey = (k) => decamelize(
+      camelCase(k.replace(envPrefix, '')), '-'
+    );
+
+    if (cmd) {
+      Object.keys(env)
+        .filter((k) => k.startsWith(envPrefix))
+        .forEach((k) => {
+          const optKey = toOptionKey(k);
+          const globalOpt = this.options[optKey];
+          const cmdOpt = this.options[cmd] && this.options[cmd][optKey];
+
+          if (!globalOpt && !cmdOpt) {
+            log.debug(`Environment ${k} not supported by web-ext ${cmd}`);
+            delete env[k];
+          }
+        });
+    }
+  }
+
   async execute(
     {
       checkForUpdates = defaultUpdateChecker,
@@ -164,7 +241,8 @@ export class Program {
     this.shouldExitProgram = shouldExitProgram;
     this.yargs.exitProcess(this.shouldExitProgram);
 
-    const argv = this.yargs.argv;
+    this.cleanupProcessEnvConfigs(systemProcess);
+    const argv = this.getArguments();
 
     const cmd = argv._[0];
 
@@ -190,10 +268,7 @@ export class Program {
 
       const configFiles = [];
 
-      // Because of an issue with yargs special handling for '--no-' option prefix (See #306)
-      // we need to look explicitly for the options  --config-discovery and --no-config-discovery
-      // (See #1307).
-      if (argv.configDiscovery && !argv.noConfigDiscovery) {
+      if (argv.configDiscovery) {
         log.debug(
           'Discovering config files. ' +
           'Set --no-config-discovery to disable');
@@ -233,6 +308,8 @@ export class Program {
         // Ensure that the verbose is enabled when specified in a config file.
         this.enableVerboseMode(logStream, version);
       }
+
+      this.checkRequiredArguments(adjustedArgv);
 
       await runCommand(adjustedArgv, {shouldExitProgram});
 
@@ -289,6 +366,15 @@ type MainParams = {
   runOptions?: Object,
 }
 
+export function throwUsageErrorIfArray(errorMessage: string): any {
+  return (value: any): any => {
+    if (Array.isArray(value)) {
+      throw new UsageError(errorMessage);
+    }
+    return value;
+  };
+}
+
 export function main(
   absolutePackageDir: string,
   {
@@ -317,7 +403,8 @@ Example: $0 --help run.
     .env(envPrefix)
     .version(version)
     .demandCommand(1, 'You must specify a command')
-    .strict();
+    .strict()
+    .recommendCommands();
 
   program.setGlobalOptions({
     'source-dir': {
@@ -348,7 +435,10 @@ Example: $0 --help run.
                 'ignored. (Example: --ignore-files=path/to/first.js ' +
                 'path/to/second.js "**/*.log")',
       demandOption: false,
-      requiresArg: true,
+      // The following option prevents yargs>=11 from parsing multiple values,
+      // so the minimum value requirement is enforced in execute instead.
+      // Upstream bug: https://github.com/yargs/yargs/issues/1098
+      // requiresArg: true,
       type: 'array',
     },
     'no-input': {
@@ -371,6 +461,18 @@ Example: $0 --help run.
       demandOption: false,
       default: true,
       type: 'boolean',
+    },
+    'filename': {
+      alias: 'n',
+      describe: 'Name of the created extension package file.',
+      default: undefined,
+      normalize: false,
+      demandOption: false,
+      requiresArg: true,
+      type: 'string',
+      coerce: throwUsageErrorIfArray(
+        'Multiple --filename/-n option are not allowed'
+      ),
     },
   });
 
@@ -436,12 +538,12 @@ Example: $0 --help run.
     .command('run', 'Run the extension', commands.run, {
       'target': {
         alias: 't',
-        describe: 'The extensions runners to enable (e.g. firefox-desktop, ' +
-                  'firefox-android). Specify this option multiple times to ' +
-                  'run against multiple targets.',
+        describe: 'The extensions runners to enable. Specify this option ' +
+                  'multiple times to run against multiple targets.',
         default: 'firefox-desktop',
         demandOption: false,
         type: 'array',
+        choices: ['firefox-desktop', 'firefox-android', 'chromium'],
       },
       'firefox': {
         alias: ['f', 'firefox-binary'],
@@ -462,16 +564,37 @@ Example: $0 --help run.
         demandOption: false,
         type: 'string',
       },
+      'chromium-binary': {
+        describe: 'Path or alias to a Chromium executable such as ' +
+          'google-chrome, google-chrome.exe or opera.exe etc. ' +
+          'If not specified, the default Google Chrome will be used.',
+        demandOption: false,
+        type: 'string',
+      },
+      'chromium-profile': {
+        describe: 'Path to a custom Chromium profile',
+        demandOption: false,
+        type: 'string',
+      },
       'keep-profile-changes': {
         describe: 'Run Firefox directly in custom profile. Any changes to ' +
                   'the profile will be saved.',
         demandOption: false,
         type: 'boolean',
       },
-      'no-reload': {
-        describe: 'Do not reload the extension when source files change',
+      'reload': {
+        describe: 'Reload the extension when source files change.' +
+          'Disable with --no-reload.',
         demandOption: false,
+        default: true,
         type: 'boolean',
+      },
+      'watch-file': {
+        describe: 'Reload the extension only when the contents of this' +
+                  'file changes. This is useful if you use a custom' +
+                  ' build process for your extension',
+        demandOption: false,
+        type: 'string',
       },
       'pre-install': {
         describe: 'Pre-install the extension into the profile before ' +
@@ -494,7 +617,6 @@ Example: $0 --help run.
         alias: ['u', 'url'],
         describe: 'Launch firefox at specified page',
         demandOption: false,
-        requiresArg: true,
         type: 'array',
       },
       'browser-console': {
@@ -535,11 +657,24 @@ Example: $0 --help run.
         type: 'string',
         requiresArg: true,
       },
+      'adb-discovery-timeout': {
+        describe: 'Number of milliseconds to wait before giving up',
+        demandOption: false,
+        type: 'number',
+        requiresArg: true,
+      },
       'firefox-apk': {
         describe: (
           'Run a specific Firefox for Android APK. ' +
           'Example: org.mozilla.fennec_aurora'
         ),
+        demandOption: false,
+        type: 'string',
+        requiresArg: true,
+      },
+      'firefox-apk-component': {
+        describe:
+          'Run a specific Android Component (defaults to <firefox-apk>/.App)',
         demandOption: false,
         type: 'string',
         requiresArg: true,

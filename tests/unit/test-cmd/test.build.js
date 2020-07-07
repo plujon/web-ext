@@ -10,6 +10,7 @@ import defaultEventToPromise from 'event-to-promise';
 import build, {
   safeFileName,
   getDefaultLocalizedName,
+  getStringPropertyValue,
   defaultPackageCreator,
 } from '../../../src/cmd/build';
 import {FileFilter} from '../../../src/util/file-filter';
@@ -72,6 +73,40 @@ describe('build', () => {
     });
   });
 
+  it('throws on missing manifest properties in filename template', () => {
+    return withTempDir(
+      (tmpDir) =>
+        build({
+          sourceDir: fixturePath('minimal-web-ext'),
+          artifactsDir: tmpDir.path(),
+          filename: '{missingKey}-{version}.xpi',
+        })
+          .then(makeSureItFails())
+          .catch((error) => {
+            log.info(error);
+            assert.instanceOf(error, UsageError);
+            assert.match(
+              error.message,
+              /Manifest key "missingKey" is missing/);
+          })
+    );
+  });
+
+  it('gives the correct custom name to an extension', () => {
+    return withTempDir(
+      (tmpDir) =>
+        build({
+          sourceDir: fixturePath('minimal-web-ext'),
+          artifactsDir: tmpDir.path(),
+          filename: '{applications.gecko.id}-{version}.xpi',
+        })
+          .then((buildResult) => {
+            assert.match(path.basename(buildResult.extensionPath),
+                         /minimal-example_web-ext-test-suite-1.0\.xpi$/);
+          })
+    );
+  });
+
   it('gives the correct name to a localized extension', () => {
     return withTempDir(
       (tmpDir) =>
@@ -82,7 +117,58 @@ describe('build', () => {
           .then((buildResult) => {
             assert.match(buildResult.extensionPath,
                          /name_of_the_extension-1\.0\.zip$/);
-            return buildResult.extensionPath;
+          })
+    );
+  });
+
+  it('throws an error if the filename contains a path', () => {
+    return withTempDir(
+      (tmpDir) =>
+        build({
+          sourceDir: fixturePath('minimal-web-ext'),
+          artifactsDir: tmpDir.path(),
+          filename: 'foo/{version}.xpi',
+        })
+          .then(makeSureItFails())
+          .catch((error) => {
+            log.info(error);
+            assert.instanceOf(error, UsageError);
+            assert.match(
+              error.message,
+              /Filename "foo\/1.0.xpi" should not contain a path/);
+          })
+    );
+  });
+
+  it('throws an error if the filename doesn\'t end in .xpi or .zip', () => {
+    return withTempDir(
+      (tmpDir) =>
+        build({
+          sourceDir: fixturePath('minimal-web-ext'),
+          artifactsDir: tmpDir.path(),
+          filename: '{version}.unknown-ext',
+        })
+          .then(makeSureItFails())
+          .catch((error) => {
+            log.info(error);
+            assert.instanceOf(error, UsageError);
+            assert.match(
+              error.message,
+              /Filename "1.0.unknown-ext" should have a zip or xpi extension/);
+          })
+    );
+  });
+
+  it('accept a dash in the default_locale field', () => {
+    return withTempDir(
+      (tmpDir) =>
+        build({
+          sourceDir: fixturePath('dashed-locale'),
+          artifactsDir: tmpDir.path(),
+        })
+          .then((buildResult) => {
+            assert.match(buildResult.extensionPath,
+                         /extension_with_dashed_locale-1\.0\.zip$/);
           })
     );
   });
@@ -115,6 +201,22 @@ describe('build', () => {
       }
     );
   });
+
+  it('handles UTF-8 BOM in messages.json', () => withTempDir(
+    async (tmpDir) => {
+      const manifestDataWithBOM = '\uFEFF{"name":{"message":"BOM = \uFEFF!"}}';
+      const messageFileName = path.join(tmpDir.path(), 'messages.json');
+      await fs.writeFile(messageFileName, manifestDataWithBOM);
+      const result = await getDefaultLocalizedName({
+        messageFile: messageFileName,
+        manifestData: {
+          name: '__MSG_name__',
+          version: '0.0.1',
+        },
+      });
+      assert.equal(result, 'BOM = \uFEFF!');
+    }
+  ));
 
   it('handles comments in messages.json', () => {
     return withTempDir(
@@ -476,6 +578,19 @@ describe('build', () => {
               assert.match(error.message, /Unexpected error/);
             });
         });
+    });
+
+  });
+
+  describe('getStringPropertyValue', () => {
+
+    it('accepts the value 0', () => {
+      assert.equal(getStringPropertyValue('foo', {foo: 0}), '0');
+    });
+
+    it('throws an error if string value is empty', () => {
+      assert.throws(() => getStringPropertyValue('foo', {foo: ''}),
+                    UsageError, /Manifest key "foo" value is an empty string/);
     });
 
   });

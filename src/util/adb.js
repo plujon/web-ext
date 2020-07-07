@@ -244,25 +244,40 @@ export default class ADBUtils {
   }
 
   async startFirefoxAPK(
-    deviceId: string, apk: string, deviceProfileDir: string
+    deviceId: string,
+    apk: string,
+    apkComponent: ?string,
+    deviceProfileDir: string,
   ): Promise<void> {
     const {adbClient} = this;
 
     log.debug(
-      `Starting ${apk} with profile ${deviceProfileDir} on ${deviceId}`
+      `Starting ${apk} on ${deviceId}`
     );
+
+    // Fenix does ignore the -profile parameter, on the contrary Fennec
+    // would run using the given path as the profile to be used during
+    // this execution.
+    const extras = [{
+      key: 'args',
+      value: `-profile ${deviceProfileDir}`,
+    }];
+
+    if (!apkComponent) {
+      apkComponent = '.App';
+    } else if (!apkComponent.includes('.')) {
+      apkComponent = `.${apkComponent}`;
+    }
+    // if `apkComponent` starts with a '.', then adb will expand
+    // the following to: `${apk}/${apk}.${apkComponent}`
+    const component = `${apk}/${apkComponent}`;
 
     await wrapADBCall(async () => {
       await adbClient.startActivity(deviceId, {
         wait: true,
         action: 'android.activity.MAIN',
-        component: `${apk}/.App`,
-        extras: [
-          {
-            key: 'args',
-            value: `-profile ${deviceProfileDir}`,
-          },
-        ],
+        component,
+        extras,
       });
     });
   }
